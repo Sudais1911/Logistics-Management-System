@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: logistics-chatbot
+    runtime: python
+    buildCommand: ""
+    startCommand: "python server.py"
+    envVars:
+      - key: SESSION_SECRET
+        sync: false
+      - key: SECURE_COOKIE
+        value: "1"
+      - key: OWNER_USERNAME
+        sync: false
+      - key: OWNER_PASSWORD
+        sync: false
+      - key: CLIENT_USERNAME
+        sync: false
+      - key: CLIENT_PASSWORD
+        sync: false
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_APP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: EMAIL_BATCH_SIZE
+        value: "5"
