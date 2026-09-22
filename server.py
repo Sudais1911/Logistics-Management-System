@@ -417,7 +417,13 @@ def owner_page():
     destination_html=''.join(destination_rows) or '<tr><td colspan="2" class="muted">No destination data yet.</td></tr>'
 
     shipment_rows=[]
+    recent_orders=[]
+    delivered_shipments = [s for s in shipments if str(s.get('status','')).strip().lower() == 'delivered']
+    delivered_shipments.sort(key=lambda s: str(s.get('delivered_at', s.get('last_update',''))), reverse=True)
+
     for sh in shipments:
+        if str(sh.get('status','')).strip().lower() == 'delivered':
+            continue
         tid=esc(sh.get('tracking_id',''))
         shipment_rows.append(
             '<tr><td><strong>'+tid+'</strong></td><td>'+esc(sh.get('client_name',''))+'</td><td>'+esc(sh.get('origin',''))+' → '+esc(sh.get('destination',''))+'</td>'
@@ -429,7 +435,18 @@ def owner_page():
             '<input name="note" placeholder="Client update / note">'
             '<button class="btn primary" type="submit">Update</button></form></td></tr>'
         )
-    shipment_html=''.join(shipment_rows) or '<tr><td colspan="6" class="muted">No shipments available.</td></tr>'
+
+    for sh in delivered_shipments[:10]:
+        recent_orders.append(
+            '<tr><td><strong>'+esc(sh.get('tracking_id',''))+'</strong></td>'
+            '<td>'+esc(sh.get('client_name',''))+'</td>'
+            '<td>'+esc(sh.get('origin',''))+' → '+esc(sh.get('destination',''))+'</td>'
+            '<td><span class="status">Delivered</span></td>'
+            '<td>'+esc(sh.get('delivered_at', sh.get('last_update','')))+' </td>'
+            '<td>'+esc(sh.get('eta','Delivered'))+'</td></tr>'
+        )
+
+    shipment_html=''.join(shipment_rows) or '<tr><td colspan="6" class="muted">No active shipments. Delivered orders appear in Recent Orders.</td></tr>'
 
     cards=[]
     for m in messages:
@@ -465,8 +482,9 @@ def owner_page():
     '<div class="kpi"><div class="label">Shipments In Transit</div><div class="num">'+str(in_transit)+'</div></div>'
     '<div class="kpi"><div class="label">Delivered Shipments</div><div class="num">'+str(delivered)+'</div></div></div></div>'
     '<div class="executive-grid"><div class="card"><h2>Shipment Status</h2>'+bars_html+'</div><div class="card"><h2>Top Destinations</h2><table class="small-table"><thead><tr><th>Destination</th><th>Requests</th></tr></thead><tbody>'+destination_html+'</tbody></table></div></div>'
-    '<div class="card" style="margin-top:18px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">Shipment Management</h2><span class="muted">Update status, location, ETA and client-facing note</span></div>'
+    '<div class="card" style="margin-top:18px"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><h2 style="margin:0">Shipment Management</h2><span class="muted">Active shipments only — delivered orders move to Recent Orders</span></div>'
     '<div style="overflow-x:auto;margin-top:10px"><table class="small-table"><thead><tr><th>Tracking ID</th><th>Client</th><th>Route</th><th>Status</th><th>ETA</th><th>Update</th></tr></thead><tbody>'+shipment_html+'</tbody></table></div></div>'
+    '<div class="card" style="margin-top:18px"><h2 style="margin-bottom:8px">Recent Orders</h2><p class="muted">Orders marked as Delivered are automatically moved here.</p><div style="overflow-x:auto"><table class="small-table"><thead><tr><th>Tracking ID</th><th>Client</th><th>Route</th><th>Status</th><th>Delivered At</th><th>ETA</th></tr></thead><tbody>'+(''.join(recent_orders) or '<tr><td colspan="6" class="muted">No completed orders yet.</td></tr>')+'</tbody></table></div></div>'
     '<div id="toast" class="notice" style="display:none;margin-top:14px"></div>'
     '<div class="card" style="margin-top:18px"><h2 style="margin-bottom:8px">Recent Client Activity</h2><div style="overflow-x:auto"><table class="small-table"><thead><tr><th>Received</th><th>Client</th><th>Request</th><th>Destination</th><th>Status</th></tr></thead><tbody>'+recent_html+'</tbody></table></div></div>'
     '<h2 style="margin-top:28px">Client Requirements</h2><p class="muted">Approve/contact/close inquiries, and use the phone shortcut to contact the client.</p>'+details_html+
@@ -618,12 +636,20 @@ class Handler(BaseHTTPRequestHandler):
             eta=str(data.get('eta','')).strip() or sh.get('eta','')
             note=str(data.get('note','')).strip()
             now=datetime.now().strftime('%Y-%m-%d %H:%M')
+            previous_status = str(sh.get('status','')).strip()
             sh['status']=status; sh['eta']=eta; sh['last_update']=now
             event={'time':now,'location':location or (sh.get('events',[{}])[0].get('location','') if sh.get('events') else ''),'status':status}
             if note: event['note']=note; sh['client_update']=note
             sh.setdefault('events',[]).insert(0,event)
+            if status.lower() == 'delivered':
+                sh['delivered_at'] = now
+            elif previous_status.lower() == 'delivered' and status.lower() != 'delivered':
+                sh.pop('delivered_at', None)
             write_json(SHIPMENTS,shipments)
-            self.json({'ok':True,'message':'Shipment updated. The new status, ETA and client-facing update are now visible when the client checks tracking.'})
+            if status.lower() == 'delivered' and previous_status.lower() != 'delivered':
+                self.json({'ok':True,'message':'Shipment marked as Delivered and moved to Recent Orders. The client-facing update is now visible when the client checks tracking.'})
+            else:
+                self.json({'ok':True,'message':'Shipment updated. The new status, ETA and client-facing update are now visible when the client checks tracking.'})
         elif path == '/api/inquiry-update':
             inquiry_id=str(data.get('id','')).strip()
             messages=read_json(MESSAGES,[]); requests=read_json(REQUESTS,[])
