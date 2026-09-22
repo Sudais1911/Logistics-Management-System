@@ -12,6 +12,7 @@ import hmac
 import hashlib
 import base64
 import time
+import secrets
 from urllib.parse import parse_qs
 from email.message import EmailMessage
 
@@ -54,6 +55,31 @@ def _b64(data: bytes) -> str:
 
 def _unb64(value: str) -> bytes:
     return base64.urlsafe_b64decode(value + '=' * (-len(value) % 4))
+
+def create_captcha():
+    a = secrets.randbelow(9) + 1
+    b = secrets.randbelow(9) + 1
+    expires = int(time.time()) + 600
+    raw = json.dumps({'a': a, 'b': b, 'exp': expires}, separators=(',', ':')).encode('utf-8')
+    body = _b64(raw)
+    sig = hmac.new(SESSION_SECRET.encode('utf-8'), body.encode('utf-8'), hashlib.sha256).hexdigest()
+    return f'{a} + {b} = ?', body + '.' + sig
+
+def verify_captcha(token: str, answer: str) -> bool:
+    if not token or '.' not in token:
+        return False
+    try:
+        body, sig = token.rsplit('.', 1)
+        expected = hmac.new(SESSION_SECRET.encode('utf-8'), body.encode('utf-8'), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return False
+        payload = json.loads(_unb64(body).decode('utf-8'))
+        if int(payload.get('exp', 0)) < int(time.time()):
+            return False
+        expected_answer = int(payload.get('a', 0)) + int(payload.get('b', 0))
+        return int(str(answer).strip()) == expected_answer
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return False
 
 def create_session(role: str) -> str:
     payload = {'role': role, 'exp': int(time.time()) + SESSION_MAX_AGE}
@@ -171,7 +197,8 @@ def owner_message(payload):
 
 STYLE = r''':root{--bg:#f4f7fb;--card:#fff;--primary:#1264a3;--primary2:#0b4f82;--text:#17212b;--muted:#64748b;--border:#dbe4ec;--good:#14804a;--shadow:0 10px 30px rgba(0,0,0,.07)}*{box-sizing:border-box}body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--text)}.top{background:#0f172a;color:#fff;padding:16px 20px;display:flex;gap:18px;justify-content:space-between;align-items:center;flex-wrap:wrap}.brand{font-weight:800}.nav{display:flex;gap:8px;flex-wrap:wrap}.nav a{color:#fff;background:rgba(255,255,255,.08);padding:8px 11px;border-radius:8px;text-decoration:none}.wrap{max-width:1100px;margin:28px auto;padding:0 16px}.hero,.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:20px;box-shadow:var(--shadow)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}.btn{border:0;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer}.primary{background:var(--primary);color:#fff}.light{background:#e8f1f8;color:var(--primary2)}input,textarea{width:100%;padding:12px;border:1px solid var(--border);border-radius:10px;font-size:15px}textarea{min-height:100px;resize:vertical}label{display:block;font-weight:700;margin:10px 0 6px}.row{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:700px){.row{grid-template-columns:1fr}}.chat{max-width:720px;margin:auto}.window{background:#e9f4fb;border:1px solid var(--border);border-radius:18px;padding:16px;min-height:560px}.msg{display:flex;margin:9px 0}.left{justify-content:flex-start}.right{justify-content:flex-end}.bubble{max-width:84%;padding:12px 14px;border-radius:15px}.left .bubble{background:#fff;border:1px solid var(--border)}.right .bubble{background:var(--primary);color:#fff}.options{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.opt{background:#fff;color:var(--primary2);border:1px solid #b9ccd9;border-radius:10px;padding:10px 12px;cursor:pointer}.result{margin-top:12px;background:#fff;border:1px solid var(--border);padding:14px;border-radius:12px}.status{display:inline-block;padding:5px 9px;border-radius:999px;background:#e9f7f0;color:var(--good);font-weight:700}.notice{padding:12px;border-radius:10px;background:#eef6ff;border:1px solid #cfe4fa}table{width:100%;border-collapse:collapse;background:#fff}.owner-table{table-layout:fixed}.owner-table th,.owner-table td{text-align:left;padding:10px;border-bottom:1px solid var(--border);font-size:14px;vertical-align:top}.owner-table thead th{background:#f8fafc}.owner-table th:first-child{width:18%}.owner-table .action-head,.owner-table .action-cell{width:150px;text-align:right}.contact-btn{display:inline-block;background:var(--primary);color:#fff;text-decoration:none;border-radius:9px;padding:9px 12px;font-weight:700;white-space:nowrap}.contact-btn:hover{background:var(--primary2)}.contact-btn[aria-disabled=\"true\"]{opacity:.5;pointer-events:none}.owner-table .action-cell{border-left:1px solid var(--border);vertical-align:middle}@media(max-width:700px){.owner-table{display:block;overflow-x:auto;white-space:normal}.owner-table .action-head,.owner-table .action-cell{width:125px}}.kpis{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:14px;margin-top:18px}.kpi{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--shadow)}.kpi .num{font-size:30px;font-weight:800;margin-top:5px}.kpi .label{color:var(--muted);font-size:13px}.executive-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;margin-top:18px}.bar-row{margin:10px 0}.bar-label{display:flex;justify-content:space-between;font-size:13px;margin-bottom:5px}.bar-track{height:10px;background:#edf2f7;border-radius:999px;overflow:hidden}.bar-fill{height:100%;background:var(--primary);border-radius:999px}.small-table{width:100%;border-collapse:collapse}.small-table th,.small-table td{padding:9px;border-bottom:1px solid var(--border);text-align:left;font-size:13px}.action-link{color:var(--primary);font-weight:700;text-decoration:none}@media(max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(150px,1fr))}.executive-grid{grid-template-columns:1fr}}@media(max-width:520px){.kpis{grid-template-columns:1fr}}h1,h2,h3{margin-top:0}.muted{color:var(--muted)}.inline-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.inline-form input,.inline-form select{width:auto;min-width:130px;padding:9px}.login-wrap{max-width:620px}.login-card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:24px;box-shadow:var(--shadow);margin:0 auto}.login-header{text-align:center}.role-badge{display:inline-block;background:#e8f1f8;color:var(--primary2);padding:6px 10px;border-radius:999px;font-size:12px;font-weight:800}.role-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}.role-card{border:1px solid var(--border);border-radius:14px;padding:16px;background:#fbfdff}.role-icon{font-size:28px}.login-form{margin-top:10px}.login-note{font-size:12px;color:var(--muted);margin-top:14px;text-align:center}.error-notice{background:#fff3f2;border-color:#f5c2c0;color:#a21b16}@media(max-width:600px){.role-cards{grid-template-columns:1fr}}.inline-form input[type=hidden]{display:none}.inline-form .btn{padding:9px 12px}@media(max-width:700px){.inline-form{align-items:stretch}.inline-form input,.inline-form select,.inline-form .btn{width:100%}}'''
 
-LOGIN = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Logistics Portal Login</title><link rel="stylesheet" href="/static/style.css"></head><body><div class="top"><div class="brand">Logistics Portal</div></div><div class="wrap login-wrap"><div class="login-card"><div class="login-header"><span class="role-badge">Secure Access</span><h1>Sign in to Logistics Portal</h1><p class="muted">Your login determines which interface you can access.</p></div><div class="role-cards"><div class="role-card"><div class="role-icon">👤</div><h3>Client</h3><p>Track shipments and submit new shipment inquiries.</p></div><div class="role-card"><div class="role-icon">🧑‍💼</div><h3>Owner</h3><p>Manage inquiries, shipments, client updates and the executive dashboard.</p></div></div>{message}<form method="post" action="/login" class="login-form"><label>Username</label><input name="username" autocomplete="username" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><button class="btn primary" type="submit">Sign In</button></form><p class="login-note">For public deployment, replace the demo credentials with your own environment variables.</p></div></div></body></html>'''
+LOGIN = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Logistics Portal Login</title><link rel="stylesheet" href="/static/style.css"><style>
+.role-choice{border:2px solid var(--border);background:#fff;border-radius:14px;padding:18px;cursor:pointer;text-align:left;transition:.15s;width:100%}.role-choice:hover{border-color:var(--primary)}.role-choice.selected{border-color:var(--primary);background:#eef6ff}.role-choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}.selected-role{margin:0 0 14px;padding:10px 12px;border-radius:10px;background:#eef6ff;color:var(--primary2);font-weight:700;text-align:center}.captcha-box{margin-top:14px;padding:14px;border:1px solid var(--border);border-radius:12px;background:#f8fafc}.captcha-question{font-weight:800;font-size:17px;margin-bottom:8px;text-align:center}.submit-wrap{display:flex;justify-content:center;margin-top:16px}.submit-wrap .btn{min-width:150px}@media(max-width:600px){.role-choice-grid{grid-template-columns:1fr}}</style></head><body><div class="top"><div class="brand">Logistics Portal</div></div><div class="wrap login-wrap"><div class="login-card"><div class="login-header"><span class="role-badge">Secure Access</span><h1>Sign in to Logistics Portal</h1><p class="muted">Choose Client or Owner to continue.</p></div>{message}<div class="role-choice-grid"><button type="button" id="clientChoice" class="role-choice" onclick="selectRole('client')"><div class="role-icon">👤</div><h3>Client</h3><p>Track shipments and submit new shipment inquiries.</p></button><button type="button" id="ownerChoice" class="role-choice" onclick="selectRole('owner')"><div class="role-icon">🧑‍💼</div><h3>Owner</h3><p>Manage inquiries, shipments, client updates and the executive dashboard.</p></button></div><div id="loginPanel" class="hidden"><div id="selectedRole" class="selected-role"></div><form method="post" action="/login" class="login-form"><input type="hidden" id="role" name="role"><input type="hidden" name="captcha_token" value="{captcha_token}"><label>Username</label><input name="username" autocomplete="username" required><label>Password</label><input type="password" name="password" autocomplete="current-password" required><div class="captcha-box"><div class="captcha-question">CAPTCHA: {captcha_question}</div><label>Enter the answer</label><input name="captcha_answer" inputmode="numeric" autocomplete="off" required></div><div class="submit-wrap"><button class="btn primary" type="submit">Sign In</button></div></form></div><p class="login-note">Your selected role determines the interface and permissions you receive.</p></div></div><script>function selectRole(role){document.getElementById('role').value=role;document.getElementById('loginPanel').classList.remove('hidden');document.getElementById('selectedRole').textContent=role==='owner'?'Owner login selected':'Client login selected';document.getElementById('ownerChoice').classList.toggle('selected',role==='owner');document.getElementById('clientChoice').classList.toggle('selected',role==='client');document.querySelector('#loginPanel input[name="username"]').focus();}</script></body></html>'''
 
 INDEX = '''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Logistics Chatbot</title><link rel="stylesheet" href="/static/style.css"></head><body><div class="top"><div class="brand">Logistics Chatbot</div><div class="nav"><a href="/">Home</a><a href="/chat">Client Chat</a><a href="/owner">Owner Dashboard</a></div></div><div class="wrap"><div class="hero"><h1>Logistics Client Chatbot</h1><p class="muted">Free local prototype for shipment tracking and new-shipment inquiry.</p><div class="grid"><div class="card"><h3>Client Chat</h3><p>Track shipments or submit a guided shipment request.</p><a class="btn primary" href="/chat">Open Client Chat</a></div><div class="card"><h3>Owner Dashboard</h3><p>See client requirements captured by the chatbot.</p><a class="btn light" href="/owner">Open Owner Dashboard</a></div></div></div><div class="card" style="margin-top:18px"><h3>Workflow</h3><p>Client → Shipment Inquiry → Tracking / New Shipment → Owner receives requirements.</p><div class="notice">WhatsApp is not connected in this prototype, so your personal number is untouched.</div></div></div></body></html>'''
 
@@ -399,7 +426,11 @@ def login_page(message=''):
     safe_message = ''
     if message:
         safe_message = '<div class="notice error-notice">' + esc(message) + '</div>'
-    return LOGIN.replace('{message}', safe_message)
+    captcha_question, captcha_token = create_captcha()
+    page = LOGIN.replace('{message}', safe_message)
+    page = page.replace('{captcha_question}', esc(captcha_question))
+    page = page.replace('{captcha_token}', html.escape(captcha_token, quote=True))
+    return page
 
 class Handler(BaseHTTPRequestHandler):
     def send_bytes(self, data, content_type='text/html; charset=utf-8', status=200):
@@ -468,14 +499,26 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get('Content-Length', '0'))
             raw = self.rfile.read(length).decode('utf-8')
             form = parse_qs(raw)
+            role = form.get('role', [''])[0].strip().lower()
             username = form.get('username', [''])[0]
             password = form.get('password', [''])[0]
-            role = credentials_match(username, password)
-            if not role:
-                self.page(login_page('Invalid username or password.'))
+            captcha_answer = form.get('captcha_answer', [''])[0]
+            captcha_token = form.get('captcha_token', [''])[0]
+
+            if role not in {'owner', 'client'}:
+                self.page(login_page('Please choose Client or Owner before signing in.'))
                 return
+
+            if not verify_captcha(captcha_token, captcha_answer):
+                self.page(login_page('CAPTCHA is incorrect or has expired. Please try again.'))
+                return
+
+            matched_role = credentials_match(username, password)
+            if matched_role != role:
+                self.page(login_page('Invalid ' + role + ' username or password.'))
+                return
+
             self.redirect('/owner' if role == 'owner' else '/chat', {'Set-Cookie': cookie_header(create_session(role))})
-            return
 
         data = self.read_body()
         protected_roles = {
